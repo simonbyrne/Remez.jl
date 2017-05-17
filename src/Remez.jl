@@ -2,46 +2,49 @@ module Remez
 
 using Compat
 
-export ratfn_minimax
+export remez
 
 """
-Evaluate a polynomial.
+Evaluate a polynomial in the basis of first kind Chebyshev polynomials.
 
 Arguments:
    coeffs   Array of BigFloats giving the coefficients of the polynomial.
             Starts with the constant term, i.e. coeffs[i] is the
-            coefficient of x^(i-1) (because Julia arrays are 1-based).
+            coefficient of T_{i-1}(x) (because Julia arrays are 1-based).
    x        Point at which to evaluate the polynomial.
 
 Return value is a BigFloat.
 """
-function poly_eval(coeffs::Array{BigFloat}, x::BigFloat)
+function clenshaw(coeffs::Array{BigFloat}, x::BigFloat)
     n = length(coeffs)
     if n == 0
         return BigFloat(0)
     end
-    y = coeffs[n]
-    for i = n-1:-1:1
-        y = coeffs[i] + x*y
+
+    x = 2x
+    bk1,bk2 = BigFloat(0),BigFloat(0)
+    for i = n:-1:2
+        bk2, bk1 = bk1, muladd(x,bk1,coeffs[i]-bk2)
     end
-    y
+
+    muladd(x/2,bk1,coeffs[1]-bk2)
 end
 
 """
-Evaluate a rational function.
+Evaluate a rational function in the basis of first kind Chebyshev polynomials.
 
 Arguments:
    ncoeffs  Array of BigFloats giving the coefficients of the numerator.
-            Starts with the constant term, and 1-based, as above.
+            Starts with T_0(x), and 1-based, as above.
    dcoeffs  Array of BigFloats giving the coefficients of the denominator.
-            Starts with the constant term, and 1-based, as above.
+            Starts with T_0(x), and 1-based, as above.
    x        Point at which to evaluate the function.
 
 Return value is a BigFloat.
 """
-function ratfn_eval(ncoeffs::Array{BigFloat}, dcoeffs::Array{BigFloat},
+function ratfn_evalTn(ncoeffs::Array{BigFloat}, dcoeffs::Array{BigFloat},
                     x::BigFloat)
-    return poly_eval(ncoeffs, x) / poly_eval(dcoeffs, x)
+    return clenshaw(ncoeffs, x) / clenshaw(dcoeffs, x)
 end
 
 
@@ -75,20 +78,20 @@ end
 # avoid underdetermining the system we'll fix Q's constant term at 1,
 # so that our error function (as described above) is
 #
-# E = \sum (p_0 + p_1 x + ... + p_n x^n - y - y q_1 x - ... - y q_d x^d)^2
+# E = \sum (p_0 T_0(x) + p_1 T_1(x) + ... + p_n T_n(x) - y T_0(x) - y q_1 T_1(x) - ... - y q_d T_d(x))^2
 #
 # where the sum is over all (x,y) coordinate pairs. Setting dE/dp_j=0
 # (for each j) gives an equation of the form
 #
-# 0 = \sum 2(p_0 + p_1 x + ... + p_n x^n - y - y q_1 x - ... - y q_d x^d) x^j
+# 0 = \sum 2(p_0 T_0(x) + p_1 T_1(x) + ... + p_n T_n(x) - y T_0(x) - y q_1 T_1(x) - ... - y q_d T_d(x)) T_j(x)
 #
 # and setting dE/dq_j=0 gives one of the form
 #
-# 0 = \sum 2(p_0 + p_1 x + ... + p_n x^n - y - y q_1 x - ... - y q_d x^d) y x^j
+# 0 = \sum 2(p_0 T_0(x) + p_1 T_1(x) + ... + p_n T_n(x) - y T_0(x) - y q_1 T_1(x) - ... - y q_d T_d(x)) y T_j(x)
 #
 # And both of those row types, treated as multivariate linear
 # equations in the p,q values, have each coefficient being a value of
-# the form \sum x^i, \sum y x^i or \sum y^2 x^i, for various i. (Times
+# the form \sum T_i(x), \sum y T_i(x) or \sum y^2 T_i(x), for various i. (Times
 # a factor of 2, but we can throw that away.) So we can go through the
 # list of input coordinates summing all of those things, and then we
 # have enough information to construct our matrix and solve it
@@ -111,53 +114,33 @@ end
 # Return values: a pair of arrays of BigFloats (N,D) giving the
 # coefficients of the returned rational function. N has size n+1; D
 # has size d+1. Both start with the constant term, i.e. N[i] is the
-# coefficient of x^(i-1) (because Julia arrays are 1-based). D[1] will
+# coefficient of T_{i-1}(x) (because Julia arrays are 1-based). D[1] will
 # be 1.
+#
+# This is all equivalent to a weighted QR factorization of the least-squares system.
+#
 function ratfn_leastsquares(f::Function, xvals::Array{BigFloat}, n, d,
                             w = (x,y)->BigFloat(1))
-    # Accumulate sums of x^i y^j, for j={0,1,2} and a range of x.
-    # Again because Julia arrays are 1-based, we'll have sums[i,j]
-    # being the sum of x^(i-1) y^(j-1).
-    maxpow = max(n,d) * 2 + 1
-    sums = zeros(BigFloat, maxpow, 3)
-    for x = xvals
-        y = f(x)
-        weight = w(x,y)
-        for i = 1:1:maxpow
-            for j = 1:1:3
-                sums[i,j] += x^(i-1) * y^(j-1) * weight
-            end
-        end
-    end
+    N = length(xvals)
+    matrix = Array(BigFloat, N, n+d+1)
+    vector = Array(BigFloat, N)
 
-    # Build the matrix. We're solving n+d+1 equations in n+d+1
-    # unknowns. (We actually have to return n+d+2 coefficients, but
-    # one of them is hardwired to 1.)
-    matrix = Array(BigFloat, n+d+1, n+d+1)
-    vector = Array(BigFloat, n+d+1)
-    for i = 0:1:n
-        # Equation obtained by differentiating with respect to p_i,
-        # i.e. the numerator coefficient of x^i.
-        row = 1+i
-        for j = 0:1:n
-            matrix[row, 1+j] = sums[1+i+j, 1]
+    for i = 1:N
+        x = xvals[i]
+        y = f(x)
+        sqrtweight = sqrt(w(x,y))
+        vector[i] = sqrtweight*y
+
+        matrix[i,1] = sqrtweight
+        if n > 0 matrix[i,2] = sqrtweight*x end
+        for j = 2:n
+            matrix[i,1+j] = 2x*matrix[i,j]-matrix[i,j-1]
         end
-        for j = 1:1:d
-            matrix[row, 1+n+j] = -sums[1+i+j, 2]
+        if d > 0 matrix[i,n+2] = -vector[i]*x end
+        if d > 1 matrix[i,n+3] = -vector[i]*(2x^2-1) end
+        for j = 3:d
+            matrix[i,1+j+n] = 2x*matrix[i,j+n]-matrix[i,j+n-1]
         end
-        vector[row] = sums[1+i, 2]
-    end
-    for i = 1:1:d
-        # Equation obtained by differentiating with respect to q_i,
-        # i.e. the denominator coefficient of x^i.
-        row = 1+n+i
-        for j = 0:1:n
-            matrix[row, 1+j] = sums[1+i+j, 2]
-        end
-        for j = 1:1:d
-            matrix[row, 1+n+j] = -sums[1+i+j, 3]
-        end
-        vector[row] = sums[1+i, 3]
     end
 
     # Solve the matrix equation.
@@ -167,6 +150,7 @@ function ratfn_leastsquares(f::Function, xvals::Array{BigFloat}, n, d,
     # return.
     ncoeffs = all_coeffs[1:n+1]
     dcoeffs = vcat([1], all_coeffs[n+2:n+d+1])
+
     return (ncoeffs, dcoeffs)
 end
 
@@ -372,7 +356,7 @@ end
 # Return values: a pair of arrays of BigFloats (N,D) giving the
 # coefficients of the returned rational function. N has size n+1; D
 # has size d+1. Both start with the constant term, i.e. N[i] is the
-# coefficient of x^(i-1) (because Julia arrays are 1-based). D[1] will
+# coefficient of T_{i-1}(x) (because Julia arrays are 1-based). D[1] will
 # be 1.
 function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
                                n, d, prev_err::BigFloat,
@@ -387,7 +371,7 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
         # deviation at the specified coordinates. Each equation is of
         # the form
         #
-        #   p_0 x^0 + p_1 x^1 + ... + p_n x^n ± e/w(x) = f(x)
+        #   p_0 T_0(x) + p_1 T_1(x) + ... + p_n T_n(x) ± e/w(x) = f(x)
         #
         # in which the p_i and e are the variables, and the powers of
         # x and calls to w and f are the coefficients.
@@ -397,8 +381,10 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
         currsign = +1
         for i = 1:1:n+2
             x = coords[i]
-            for j = 0:1:n
-                matrix[i,1+j] = x^j
+            matrix[i,1] = 1
+            if n > 0 matrix[i,2] = x end
+            for j=2:n
+                matrix[i,1+j] = 2x*matrix[i,j]-matrix[i,j-1]
             end
             y = f(x)
             vector[i] = y
@@ -416,9 +402,9 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
         # we need to solve becomes nonlinear, because each equation
         # now takes the form
         #
-        #   p_0 x^0 + p_1 x^1 + ... + p_n x^n
-        #   --------------------------------- ± e/w(x) = f(x)
-        #     x^0 + q_1 x^1 + ... + q_d x^d
+        #   p_0 T_0(x) + p_1 T_1(x) + ... + p_n T_n(x)
+        #   ------------------------------------------ ± e/w(x, f(x)) = f(x)
+        #     T_0(x) + q_1 T_1(x) + ... + q_d T_d(x)
         #
         # and multiplying up by the denominator gives you a lot of
         # terms containing e × q_i. So we can't do this the really
@@ -448,11 +434,16 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
                 x = coords[i]
                 y = f(x)
                 y_adj = y - currsign * e / w(x,y)
-                for j = 0:1:n
-                    matrix[i,1+j] = x^j
+
+                matrix[i,1] = 1
+                if n > 0 matrix[i,2] = x end
+                for j=2:n
+                    matrix[i,1+j] = 2x*matrix[i,j]-matrix[i,j-1]
                 end
-                for j = 1:1:d
-                    matrix[i,1+n+j] = -x^j * y_adj
+                if d > 0 matrix[i,2+n] = -y_adj*x end
+                if d > 1 matrix[i,3+n] = -y_adj*(2x^2-1) end
+                for j=3:d
+                    matrix[i,1+j+n] = 2x*matrix[i,j+n]-matrix[i,j+n-1]
                 end
                 vector[i] = y_adj
                 currsign = -currsign
@@ -465,7 +456,7 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
 
             x = coords[n+d+2]
             y = f(x)
-            last_e = (ratfn_eval(ncoeffs, dcoeffs, x) - y) * w(x,y) * -currsign
+            last_e = (ratfn_evalTn(ncoeffs, dcoeffs, x) - y) * w(x,y) * -currsign
 
             return ncoeffs, dcoeffs, last_e
         end
@@ -511,7 +502,7 @@ end
 
 
 """
-    N,D,E,X = ratfn_minimax(f, interval, n, d, w)
+    N,D,E,X = remez(f, interval, n, d, w)
 
 Top-level function to find a minimax rational-function approximation.
 
@@ -533,8 +524,10 @@ Return values: a tuple (N,D,E,X), where
  * N,D       A pair of arrays of BigFloats giving the coefficients
              of the returned rational function. N has size n+1; D
              has size d+1. Both start with the constant term, i.e.
-             N[i] is the coefficient of x^(i-1) (because Julia
-             arrays are 1-based). D[1] will be 1.
+             N[i] is the coefficient of T_{i-1}(M^{-1}(x)) (because Julia
+             arrays are 1-based). D[1] will be 1. Here, M(x) is the affine
+             map from the canonical unit interval [-1,1] to the interval
+             provided in the input.
  * E         The maximum weighted error (BigFloat).
  * X         An array of pairs of BigFloats giving the locations of n+2
              points and the weighted error at each of those points. The
@@ -543,8 +536,7 @@ Return values: a tuple (N,D,E,X), where
              that any other function of the same degree must exceed
              the error of this one at at least one of those points.
 """
-function ratfn_minimax(f, interval, n, d,
-                       w = (x,y)->BigFloat(1))
+function remez(f, interval, n, d; w = (x,y)->BigFloat(1))
     # We start off by finding a least-squares approximation. This
     # doesn't need to be perfect, but if we can get it reasonably good
     # then it'll save iterations in the refining stage.
@@ -559,16 +551,18 @@ function ratfn_minimax(f, interval, n, d,
     lo = BigFloat(minimum(interval))
     hi = BigFloat(maximum(interval))
 
-    local grid
-    let
-        mid = (hi+lo)/2
-        halfwid = (hi-lo)/2
-        nnodes = 16 * (n+d+1)
-        grid = [ mid - halfwid * cospi(big(i)/big(nnodes)) for i=0:nnodes ]
+    mid = (hi+lo)/2
+    halfwid = (hi-lo)/2
+    nnodes = 16 * (n+d+1)
+
+    grid = [sinpi(gd) for gd in linspace(big(-0.5),big(0.5),nnodes+1)]
+    function fmap(x)
+        return f(mid+halfwid*x)
     end
+    wmap = (x,y) -> w(mid+halfwid*x,fmap(x))
 
     # Find the initial least-squares approximation.
-    (nc, dc) = ratfn_leastsquares(f, grid, n, d, w)
+    (nc, dc) = ratfn_leastsquares(fmap, grid, n, d, wmap)
 
     # Threshold of convergence. We stop when the relative difference
     # between the min and max (winnowed) error extrema is less than
@@ -589,9 +583,9 @@ function ratfn_minimax(f, interval, n, d,
     while true
         # Find all the error extrema we can.
         function compute_error(x)
-            real_y = f(x)
-            approx_y = ratfn_eval(nc, dc, x)
-            return (approx_y - real_y) * w(x, real_y)
+            real_y = fmap(x)
+            approx_y = ratfn_evalTn(nc, dc, x)
+            return (approx_y - real_y) * wmap(x, real_y)
         end
         extrema = find_extrema(compute_error, grid)
 
@@ -604,14 +598,28 @@ function ratfn_minimax(f, interval, n, d,
         max_err = maximum([abs(y) for (x,y) = extrema])
         variation = (max_err - min_err) / max_err
         if variation < threshold
-            return nc, dc, max_err, extrema
+            return nc, dc, max_err, tointerval(extrema, mid, halfwid)
         end
 
         # If not, refine our function by equalising the error at the
         # extrema points, and go round again.
-        (nc, dc) = ratfn_equal_deviation(f, map(x->x[1], extrema),
-                                         n, d, max_err, w)
+        (nc, dc) = ratfn_equal_deviation(fmap, map(x->x[1], extrema),
+                                         n, d, max_err, wmap)
     end
+end
+
+function remez(f, interval, n; w = (x,y)->BigFloat(1))
+    (nc,dc,e,x) = remez(f, interval, n, 0; w = w)
+    (nc,e,x)
+end
+
+function tointerval(extrema::Vector{Tuple{BigFloat,BigFloat}}, mid, halfwid)
+    n = length(extrema)
+    ret = Array(Tuple{BigFloat,BigFloat},n)
+    for i = 1:n
+        ret[i] = (mid+halfwid*extrema[i][1],extrema[i][2])
+    end
+    ret
 end
 
 # ----------------------------------------------------------------------

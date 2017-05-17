@@ -1,7 +1,7 @@
 using Remez
 using BaseTestNext
 
-import Remez: ratfn_leastsquares, ratfn_eval, ratfn_minimax, goldensection, winnow_extrema
+import Remez: ratfn_leastsquares, ratfn_evalTn, goldensection, winnow_extrema
 
 
 # Test Gaussian elimination.
@@ -25,7 +25,7 @@ end
     (nc, dc) = ratfn_leastsquares(exp, a, 2, 2)
 
     for x in a
-        @test isapprox(exp(x), ratfn_eval(nc, dc, x); rtol=0,atol=1e-4)
+        @test isapprox(exp(x), ratfn_evalTn(nc, dc, x); rtol=0,atol=1e-4)
     end
 end
 
@@ -52,42 +52,39 @@ end
 
 # Test actual minimax approximation.
 @testset "Minimax test 1 (polynomial)" begin
-    (nc, dc, e, x) = ratfn_minimax(exp, (0, 1), 4, 0)
+    (nc, e, x) = remez(exp, (0, 1), 4)
     @test 0 < e < 1e-3
     for x = big"0.0":big"0.001":big"1.0"
-        @test abs(ratfn_eval(nc, dc, x) - exp(x)) <= e * 1.0000001
+        @test abs(ratfn_evalTn(nc, BigFloat[1.0], 2x-1) - exp(x)) <= e * 1.0000001
     end
 end
 @testset "Minimax test 2 (rational)" begin
-    (nc, dc, e, x) = ratfn_minimax(exp, (0, 1), 2, 2)
+    (nc, dc, e, x) = remez(exp, (0, 1), 2, 2)
     @test 0 < e < 1e-3
     for x = big"0.0":big"0.001":big"1.0"
-        @test abs(ratfn_eval(nc, dc, x) - exp(x)) <= e * 1.0000001
+        @test abs(ratfn_evalTn(nc, dc, 2x-1) - exp(x)) <= e * 1.0000001
     end
 end
 @testset "Minimax test 3 (polynomial, weighted)" begin
-    (nc, dc, e, x) = ratfn_minimax(exp, (0, 1), 4, 0,
-                                   (x,y)->1/y)
+    (nc, dc, e, x) = remez(exp, (0, 1), 4, 0; w = (x,y)->1/y)
     @test 0 < e < 1e-3
     for x = big"0.0":big"0.001":big"1.0"
-        @test abs(ratfn_eval(nc, dc, x) - exp(x))/exp(x) <= e * 1.0000001
+        @test abs(ratfn_evalTn(nc, dc, 2x-1) - exp(x))/exp(x) <= e * 1.0000001
     end
 end
 @testset "Minimax test 4 (rational, weighted)" begin
-    (nc, dc, e, x) = ratfn_minimax(exp, (0, 1), 2, 2,
-                                   (x,y)->1/y)
+    (nc, dc, e, x) = remez(exp, (0, 1), 2, 2; w = (x,y)->1/y)
     @test 0 < e < 1e-3
     for x = big"0.0":big"0.001":big"1.0"
-        @test abs(ratfn_eval(nc, dc, x) - exp(x))/exp(x) <= e * 1.0000001
+        @test abs(ratfn_evalTn(nc, dc, 2x-1) - exp(x))/exp(x) <= e * 1.0000001
     end
 end
 
 @testset "Minimax test 5 (rational, weighted, odd degree)" begin
-    
-    (nc, dc, e, x) = ratfn_minimax(exp, (0, 1), 2, 1,
-                                   (x,y)->1/y)
+
+    (nc, dc, e, x) = remez(exp, (0, 1), 2, 1; w = (x,y)->1/y)
     @test 0 < e < 1e-3
     for x = big"0.0":big"0.001":big"1.0"
-        @test abs(ratfn_eval(nc, dc, x) - exp(x))/exp(x) <= e * 1.0000001
+        @test abs(ratfn_evalTn(nc, dc, 2x-1) - exp(x))/exp(x) <= e * 1.0000001
     end
 end
