@@ -133,8 +133,8 @@ function ratfn_leastsquares(f::Function, xvals::Array{BigFloat}, n, d,
     # Build the matrix. We're solving n+d+1 equations in n+d+1
     # unknowns. (We actually have to return n+d+2 coefficients, but
     # one of them is hardwired to 1.)
-    matrix = Array(BigFloat, n+d+1, n+d+1)
-    vector = Array(BigFloat, n+d+1)
+    matrix = Array{BigFloat}(undef, n+d+1, n+d+1)
+    vector = Array{BigFloat}(undef, n+d+1)
     for i = 0:1:n
         # Equation obtained by differentiating with respect to p_i,
         # i.e. the numerator coefficient of x^i.
@@ -392,8 +392,8 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
         # in which the p_i and e are the variables, and the powers of
         # x and calls to w and f are the coefficients.
 
-        matrix = Array(BigFloat, n+2, n+2)
-        vector = Array(BigFloat, n+2)
+        matrix = Array{BigFloat}(undef, n+2, n+2)
+        vector = Array{BigFloat}(undef, n+2)
         currsign = +1
         for i = 1:1:n+2
             x = coords[i]
@@ -441,8 +441,8 @@ function ratfn_equal_deviation(f::Function, coords::Array{BigFloat},
             # based on the first n+d+1 of the n+d+2 coordinates, and
             # see what the error turns out to be at the final
             # coordinate.
-            matrix = Array(BigFloat, n+d+1, n+d+1)
-            vector = Array(BigFloat, n+d+1)
+            matrix = Array{BigFloat}(undef, n+d+1, n+d+1)
+            vector = Array{BigFloat}(undef, n+d+1)
             currsign = +1
             for i = 1:1:n+d+1
                 x = coords[i]
