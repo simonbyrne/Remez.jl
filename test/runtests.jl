@@ -1,5 +1,5 @@
 using Remez
-using BaseTestNext
+using Test
 
 import Remez: ratfn_leastsquares, ratfn_eval, ratfn_minimax, goldensection, winnow_extrema
 
@@ -18,7 +18,7 @@ end
 # Test leastsquares rational functions.
 @testset "Leastsquares test 1" begin
     n = 10000
-    a = Array(BigFloat, n+1)
+    a = Array{BigFloat}(undef, n+1)
     for i = 0:1:n
         a[1+i] = i/BigFloat(n)
     end
