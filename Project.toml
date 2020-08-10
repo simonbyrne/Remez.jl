@@ -3,6 +3,9 @@ uuid = "2e7db186-766a-50e7-8928-5c30181fb135"
 authors = ["Simon Byrne <simonbyrne@gmail.com>"]
 version = "0.1.1"
 
+[compat]
+julia = ["1"]
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
