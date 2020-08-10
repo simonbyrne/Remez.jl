@@ -1,0 +1,4 @@
+name = "Remez"
+uuid = "6a7d338c-e477-44d9-b9b7-ad5b95ffabb8"
+authors = ["Simon Byrne <simonbyrne@gmail.com>"]
+version = "0.1.0"

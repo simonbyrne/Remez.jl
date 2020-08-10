@@ -1,7 +1,5 @@
 module Remez
 
-using Compat
-
 export ratfn_minimax
 
 """
