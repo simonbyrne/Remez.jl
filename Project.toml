@@ -1,4 +1,10 @@
 name = "Remez"
 uuid = "6a7d338c-e477-44d9-b9b7-ad5b95ffabb8"
 authors = ["Simon Byrne <simonbyrne@gmail.com>"]
-version = "0.1.0"
+version = "0.1.1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
